@@ -40,10 +40,14 @@ class PID:
 
 		settings = ReadSettings()
 		self.Center = settings['cycle_data']['center']
+		self.u_min = settings['cycle_data']['u_min']
+		self.u_max = settings['cycle_data']['u_max']
+
+
 
 		self.Derv = 0.0
 		self.Inter = 0.0
-		self.Inter_max = abs(self.Center/self.Ki)
+		self.Inter_max = abs(0.4/self.Ki) # abs(self.Center/self.Ki)
 
 		self.Last = 150
 
@@ -63,18 +67,22 @@ class PID:
 		dT = time.time() - self.LastUpdate
 		#if self.P > 0 and self.P < 1: #Ensure we are in the PB, otherwise do not calculate I to avoid windup
 		self.Inter += error*dT
-		self.Inter = max(self.Inter, -self.Inter_max)
-		self.Inter = min(self.Inter, self.Inter_max)
 
 		self.I = self.Ki * self.Inter
 
 		#D
 		self.Derv = (Current - self.Last)/dT
 		self.D = self.Kd * self.Derv
+#		self.D = min(self.D, 0.5)
 
 		#PID
 		self.u = self.P + self.I + self.D
-
+		if self.u >  self.u_max:
+			self.I -= self.u - self.u_max
+			self.u = self.u_max
+		elif self.u < self.u_min:
+			self.I += self.u_min - self.u
+			self.u = self.u_min
 		#Update for next cycle
 		self.error = error
 		self.Last = Current
@@ -95,3 +103,6 @@ class PID:
 
 	def getK(self):
 		return self.Kp, self.Ki, self.Kd
+
+	def getPID(self):
+		return self.P, self.I, self.D

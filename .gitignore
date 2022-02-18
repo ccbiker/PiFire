@@ -34,6 +34,3 @@ test.json
 *.bak2
 
 pelletdb.json
-
-static/js/backups/
-

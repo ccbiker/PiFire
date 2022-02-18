@@ -33,11 +33,11 @@ def DefaultSettings():
 	settings = {}
 
 	settings['versions'] = {
-		'server' : "1.3.4"
+		'server' : "1.2.7"
 	}
 
 	settings['history_page'] = {
-		'minutes' : 15, # Sets default number of minutes to show in history
+		'minutes' : 60, # Sets default number of items to show in history
 		'clearhistoryonstart' : True, # Clear history when StartUp Mode selected
 		'autorefresh' : 'on', # Sets history graph to autorefresh ('live' graph)
 		'datapoints' : 60 # Number of datapoints to show on the history chart
@@ -47,7 +47,7 @@ def DefaultSettings():
 		'probe_profiles' :  DefaultProbeProfiles(),
 		'probes_enabled' : [1,1,1],
 		# probe sources can be ADC0-3 or max31865
-		'probe_sources' : ['ADC0', 'ADC1', 'ADC2', 'ADC3']
+		'probe_sources'  : ['ADC0', 'ADC1', 'ADC2']
 	}
 
 	settings['globals'] = {
@@ -56,14 +56,10 @@ def DefaultSettings():
 		'page_theme' : 'light',
 		'triggerlevel' : 'LOW',
 		'buttonslevel' : 'HIGH',
-		'disp_rotation' : 0,
 		'shutdown_timer' : 60,
-		'startup_timer' : 240,
-		'auto_power_off' : False,
 		'four_probes' : False,
 		'units' : 'F',
-		'augerrate' : 0.3,  # (grams per second) default auger load rate is 10 grams / 30 seconds
-		'first_time_setup' : True,  # Set to True on first setup, to run wizard on load 
+		'augerrate' : 0.3 # (grams per second) default auger load rate is 10 grams / 30 seconds
 	}
 
 	settings['ifttt'] = {
@@ -100,23 +96,17 @@ def DefaultSettings():
 	}
 
 	settings['probe_types'] = {
-		'grill1type' : 'PT-1000-OEM',
-		'grill2type' : 'TWPS00',
+		'grill0type' : 'PT-1000-OEM',
 		'probe1type' : 'TWPS00',
 		'probe2type' : 'TWPS00'
-	}
-
-	settings['grill_probe_settings'] = {
-		'grill_probes': GrillProbes(),
-		'grill_probe' : 'grill_probe1',
-		'grill_probe_enabled' : [1,0,0]
 	}
 
 	settings['outpins'] = {
 		'power' : 4,
 		'auger' : 14,
 		'fan' : 15,
-		'igniter' : 18
+		'igniter' : 18,
+                'pwm' : 26
 	}
 
 	settings['inpins'] = { 'selector' : 17 }
@@ -167,42 +157,23 @@ def DefaultSettings():
 		'full' : 4  # Number of centimeters from the sensor that indicates full
 	}
 
-	settings['modules'] = {
-		'grillplat' : 'prototype',
-		'adc' : 'prototype',
-		'display' : 'prototype',
-		'dist' : 'prototype'
-	}
+	if isRaspberryPi():
+		settings['modules'] = {
+			'grillplat' : 'pifire',	 	# Grill Platform (PiFire - Raspberry Pi GPIOs)
+			'adc' : 'ads1115',			# Analog to Digital Converter Default is the ADS1115
+			'display' : 'ssd1306',		# Default display is the SSD1306
+			'dist' : 'prototype'		# Default distance sensor is none
+		}
+	else:
+		settings['modules'] = {
+			'grillplat' : 'prototype',
+			'adc' : 'prototype',
+			'display' : 'prototype',
+			'dist' : 'prototype'
+		}
 
 	settings['lastupdated'] = {
 		'time' : math.trunc(time.time())
-	}
-
-	settings['smartstart'] = {
-		'enabled' : True, 
-		'temp_range_list' : [60, 80, 90],  # Min Temps for Each Profile
-		'profiles' : [
-			{
-				'startuptime' : 360,  
-				'augerontime' : 15,
-				'p_mode' : 0
-			},
-			{
-				'startuptime' : 360,  
-				'augerontime' : 15,
-				'p_mode' : 1
-			},
-			{
-				'startuptime' : 240,  
-				'augerontime' : 15,
-				'p_mode' : 3
-			},
-			{
-				'startuptime' : 240,  
-				'augerontime' : 15,
-				'p_mode' : 5
-			}
-		]
 	}
 
 	return settings
@@ -243,8 +214,7 @@ def DefaultControl():
 	control['setpoints'] = {
 		'grill' : 0,
 		'probe1' : 0,
-		'probe2' : 0,
-		'grill_notify' : 0
+		'probe2' : 0
 	}
 
 	control['notify_req'] = {
@@ -279,47 +249,14 @@ def DefaultControl():
 		'power' : False
 	}
 
-	control['errors'] = []
-
-	control['smartstart'] = {
-		'startuptemp' : 0,
-		'profile_selected' : 0
-	}
-
 	return(control)
-
-'''
-List of Tuples ('metric_key', default_value)
- - This structure will be used to build the default metrics structure, and to export the data easily
- - To add a metric, simply add a tuple to this list.  
-'''
-metrics_items = [ 
-	('id', 0),
-	('starttime', 0),
-	('starttime_c', 0),  # Converted Start Time
-	('endtime', 0),
-	('endtime_c', 0),  # Converted End Time
-	('timeinmode', 0),  # Calculated Time in Mode
-	('mode', ''),  
-	('augerontime', 0), 
-	('augerontime_c', 0),  # Converted Auger On Time
-	('estusage_m', ''),  # Estimated pellet usage in metric (grams)
-	('estusage_i', ''),  # Estimated pellet usage in pounds (and ounces)
-	('fanontime', 0),
-	('fanontime_c', 0),  # Converted Fan On Time
-	('smokeplus', True), 
-	('grill_settemp', 0),
-	('smart_start_profile', 0), # Smart Start Profile Selected
-	('startup_temp', 0), # Smart Start Start Up Temp
-	('p_mode', 0), # P_mode selected
-	('auger_cycle_time', 0),  # Auger Cycle Time 
-]
 
 def DefaultMetrics():
 	metrics = {}
 
-	for index in range(0, len(metrics_items)):
-		metrics[metrics_items[index][0]] = metrics_items[index][1]
+	metrics['starttime'] = 0
+	metrics['endtime'] = 0 
+	metrics['augerontime'] = 0 
 
 	return(metrics)
 
@@ -453,24 +390,6 @@ def DefaultProbeProfiles():
 	}
 	return probe_profiles
 
-def GrillProbes():
-
-	grill_probes = {}
-
-	grill_probes['grill_probe1'] = {
-		'name' : 'Grill Probe 1'
-	}
-
-	grill_probes['grill_probe2'] = {
-		'name' : 'Grill Probe 2'
-	}
-
-	grill_probes['grill_probe3'] = {
-		'name' : 'Avg Grill Probes'
-	}
-
-	return grill_probes
-
 def generateUUID():
 	node = uuid.getnode()
 	rand_int = random.randint(100, 200)
@@ -481,21 +400,18 @@ def generateUUID():
 def ReadControl(flush=False):
 	global cmdsts
 
-	try:
-		if flush:
-			# Remove all control structures in Redis DB (not history or current)
-			cmdsts.delete('control:general')
+	if flush:
+		# Remove all control structures in Redis DB (not history or current)
+		cmdsts.delete('control:general')
 
-			# The following set's no persistence so that we don't get writes to the disk / SDCard 
-			cmdsts.config_set('appendonly', 'no')
-			cmdsts.config_set('save', '')
+		# The following set's no persistence so that we don't get writes to the disk / SDCard 
+		cmdsts.config_set('appendonly', 'no')
+		cmdsts.config_set('save', '')
 
-			control = DefaultControl()
-			WriteControl(control)
-		else: 
-			control = json.loads(cmdsts.get('control:general'))
-	except:
 		control = DefaultControl()
+		WriteControl(control)
+	else: 
+		control = json.loads(cmdsts.get('control:general'))
 
 	return(control)
 
@@ -504,69 +420,28 @@ def WriteControl(control):
 
 	cmdsts.set('control:general', json.dumps(control))
 
-def ReadErrors(flush=False):
+def ReadMetrics(flush=False):
 	global cmdsts
 
-	try:
-		if flush:
-			# Remove all control structures in Redis DB (not history or current)
-			cmdsts.delete('errors')
-
-			errors = []
-			WriteErrors(errors)
-		else: 
-			errors = json.loads(cmdsts.get('errors'))
-	except:
-		errors = ['Unable to reach Redis database.  You may need to reinstall PiFire or enable redis-server.']
-
-	return(errors)
-
-def WriteErrors(errors):
-	global cmdsts
-
-	cmdsts.set('errors', json.dumps(errors))
-
-def ReadMetrics(all=False):
-	global cmdsts
-
-	if not(cmdsts.exists('metrics:general')):
-		WriteMetrics(flush=True)
-		return([])
-	
-	if all: 
-		# Read entire list of Metrics
-		llength = cmdsts.llen('metrics:general')
-		metrics = cmdsts.lrange('metrics:general', 0, -1)
-		metrics_list = []
-		for index in range(0, llength):
-			metrics_list.append(json.loads(metrics[index]))
-		return(metrics_list)
-	
-	# Read current Metrics Record (i.e. top of the list)
-	return(json.loads(cmdsts.lindex('metrics:general', -1)))
-
-def WriteMetrics(metrics=DefaultMetrics(), flush=False, new_metric=False):
-	global cmdsts
-
-	if(flush or not(cmdsts.exists('metrics:general'))):
+	if flush:
 		# Remove all control structures in Redis DB (not history or current)
 		cmdsts.delete('metrics:general')
 
 		# The following set's no persistence so that we don't get writes to the disk / SDCard 
 		cmdsts.config_set('appendonly', 'no')
 		cmdsts.config_set('save', '')
-		if not flush:
-			new_metric=True
-		else:
-			return
 
-	if new_metric:
-		metrics['starttime'] = time.time()
-		metrics['id'] = generateUUID()
-		cmdsts.rpush('metrics:general', json.dumps(metrics))
+		metrics = DefaultMetrics()
+		WriteMetrics(metrics)
 	else: 
-		cmdsts.rpop('metrics:general')
-		cmdsts.rpush('metrics:general', json.dumps(metrics))
+		metrics = json.loads(cmdsts.get('metrics:general'))
+
+	return(metrics)
+
+def WriteMetrics(metrics):
+	global cmdsts
+
+	cmdsts.set('metrics:general', json.dumps(metrics))
 
 def ReadSettings(filename='settings.json'):
 	# *****************************************
@@ -609,13 +484,7 @@ def ReadSettings(filename='settings.json'):
 		update_settings = True
 	elif(settings_struct['versions']['server'] != settings['versions']['server']):
 		settings_struct['versions']['server'] = settings['versions']['server']
-		update_settings = True
-
-	# Prevent the wizard from popping up on existing installations
-	if('first_time_setup' not in settings_struct['globals'].keys()):
-		settings_struct['globals']['first_time_setup'] = False
-		update_settings = True
-		print(' ===  DEBUG: Setting First Time Setup to False!! ')
+		update_settings = True	
 
 	for key in settings.keys():
 		if key in settings_struct.keys():
@@ -786,18 +655,14 @@ def ReadHistory(num_items=0, flushhistory=False):
 			cmdsts.hset('control:current', 'Probe2Temp', 0)
 			event = 'WARNING: History data flushed.'
 			WriteLog(event)
-			WriteMetrics(flush=True)
 	else:
 		if cmdsts.exists('control:history'):
-			list_length = cmdsts.llen('control:history') 
-
-			if((num_items > 0) and (list_length < num_items)) or (num_items == 0):
-				liststart = 0
+			if(num_items > 0) and (len(data_list) < num_items):
+				# Get range
+				liststart = cmdsts.llen('control:history') - num_items
 			else: 
-				liststart = list_length - num_items 
-
+				liststart = 0
 			data = cmdsts.lrange('control:history', liststart, -1)
-			
 			for index in range(len(data)):
 				data_list.append(data[index].split(' ', 6))  # Splits out each of the values into seperate list items 
 		else:
@@ -830,8 +695,7 @@ def WriteHistory(TempStruct, maxsizelines=28800, tuning_mode=False):
 	global cmdsts 
 
 	timenow = datetime.datetime.now()
-	#timestr = timenow.strftime('%H:%M:%S') # Truncate the microseconds
-	timestr = str(int(timenow.timestamp() * 1000))
+	timestr = timenow.strftime('%H:%M:%S') # Truncate the microseconds
 	datastring = timestr + ' ' + str(TempStruct['GrillTemp']) + ' ' + str(TempStruct['GrillSetPoint']) + ' ' + str(TempStruct['Probe1Temp']) + ' ' + str(TempStruct['Probe1SetPoint']) + ' ' + str(TempStruct['Probe2Temp']) + ' ' + str(TempStruct['Probe2SetPoint'])
 	# Push data string to the list in the last position
 	cmdsts.rpush('control:history', datastring)
@@ -911,8 +775,6 @@ def convert_settings_units(units, settings):
 	settings['smoke_plus']['max_temp'] = convert_temp(units, settings['smoke_plus']['max_temp'])
 	settings['smoke_plus']['min_temp'] = convert_temp(units, settings['smoke_plus']['min_temp'])
 	settings['keep_warm']['temp'] = convert_temp(units, settings['keep_warm']['temp'])
-	for temp in range(0, len(settings['smartstart']['temp_range_list'])):
-		settings['smartstart']['temp_range_list'][temp] = convert_temp(units, settings['smartstart']['temp_range_list'][temp])
 	return(settings)
 
 '''
@@ -930,92 +792,4 @@ def restart_scripts():
 	print('[DEBUG MSG] Restarting Scripts... ')
 	command = "sleep 3 && sudo service supervisor restart &"
 	if(isRaspberryPi()):
-		os.system(command)
-
-def ReadWizard(filename='wizard/wizard_manifest.json'):
-	'''
-		Read Wizard Manifest Data from file
-	'''
-	try:
-		json_data_file = os.fdopen(os.open(filename, os.O_RDONLY))
-		json_data_string = json_data_file.read()
-		wizard = json.loads(json_data_string)
-		json_data_file.close()
-	except(IOError, OSError):
-		event = 'ERROR: Could not read from wizard manifest.'
-		WriteLog(event)
-		wizard = {
-			"modules" : {}
-		}
-		return(wizard)
-	except(ValueError):
-		# A ValueError Exception occurs when multiple accesses collide, this code attempts a retry.
-		event = 'ERROR: Value Error Exception - JSONDecodeError reading wizard_manifest.json'
-		WriteLog(event)
-		json_data_file.close()
-		# Retry Reading Settings
-		wizard = ReadWizard(filename=filename) 
-
-	return(wizard)
-
-def LoadWizardInstallInfo():
-	global cmdsts
-	wizardInstallInfo = json.loads(cmdsts.get('wizard:install'))
-	return(wizardInstallInfo)
-
-def StoreWizardInstallInfo(wizardInstallInfo):
-	global cmdsts
-	cmdsts.set('wizard:install', json.dumps(wizardInstallInfo))
-
-def GetWizardInstallStatus():
-	global cmdsts 
-	percent = cmdsts.get('wizard:percent')
-	status = cmdsts.get('wizard:status')
-	output = cmdsts.get('wizard:output')
-	return(percent, status, output)
-
-def SetWizardInstallStatus(percent, status, output):
-	global cmdsts 
-	cmdsts.set('wizard:percent', percent)
-	cmdsts.set('wizard:status', status)
-	cmdsts.set('wizard:output', output)
-
-def ReadDepedencies(filename='updater/updater_manifest.json'):
-	'''
-		Read Updater Manifest Data from file
-	'''
-	try:
-		json_data_file = os.fdopen(os.open(filename, os.O_RDONLY))
-		json_data_string = json_data_file.read()
-		dependencies = json.loads(json_data_string)
-		json_data_file.close()
-	except(IOError, OSError):
-		event = 'ERROR: Could not read from updater manifest.'
-		WriteLog(event)
-		dependencies = {
-			"dependencies" : {}
-		}
-		return(dependencies)
-	except(ValueError):
-		# A ValueError Exception occurs when multiple accesses collide, this code attempts a retry.
-		event = 'ERROR: Value Error Exception - JSONDecodeError reading updater_manifest.json'
-		WriteLog(event)
-		json_data_file.close()
-		# Retry Reading Settings
-		dependencies = ReadDepedencies(filename=filename)
-
-	return(dependencies)
-
-def GetUpdaterInstallStatus():
-	global cmdsts
-	percent = cmdsts.get('updater:percent')
-	status = cmdsts.get('updater:status')
-	output = cmdsts.get('updater:output')
-	return(percent, status, output)
-
-def SetUpdaterInstallStatus(percent, status, output):
-	global cmdsts
-	cmdsts.set('updater:percent', percent)
-	cmdsts.set('updater:status', status)
-	cmdsts.set('updater:output', output)
-
+		os.popen(command)
