@@ -58,10 +58,7 @@ def default_settings():
 		'page_theme' : 'light',
 		'triggerlevel' : 'LOW',
 		'buttonslevel' : 'HIGH',
-		'disp_rotation' : 0,
 		'shutdown_timer' : 60,
-		'startup_timer' : 240,
-		'auto_power_off' : False,
 		'four_probes' : False,
 		'dc_fan': False,
 		'standalone': True,
@@ -110,8 +107,7 @@ def default_settings():
 	}
 
 	settings['probe_types'] = {
-		'grill1type' : 'PT-1000-OEM',
-		'grill2type' : 'TWPS00',
+		'grill0type' : 'PT-1000-OEM',
 		'probe1type' : 'TWPS00',
 		'probe2type' : 'TWPS00'
 	}
@@ -228,12 +224,20 @@ def default_settings():
 		'full' : 4  			# Number of centimeters from the sensor that indicates full
 	}
 
-	settings['modules'] = {
-		'grillplat' : 'prototype',
-		'adc' : 'prototype',
-		'display' : 'prototype',
-		'dist' : 'prototype'
-	}
+	if isRaspberryPi():
+		settings['modules'] = {
+			'grillplat' : 'pifire',	 	# Grill Platform (PiFire - Raspberry Pi GPIOs)
+			'adc' : 'ads1115',			# Analog to Digital Converter Default is the ADS1115
+			'display' : 'ssd1306',		# Default display is the SSD1306
+			'dist' : 'prototype'		# Default distance sensor is none
+		}
+	else:
+		settings['modules'] = {
+			'grillplat' : 'prototype',
+			'adc' : 'prototype',
+			'display' : 'prototype',
+			'dist' : 'prototype'
+		}
 
 	settings['lastupdated'] = {
 		'time' : math.trunc(time.time())
@@ -335,8 +339,7 @@ def default_control():
 	control['setpoints'] = {
 		'grill' : 0,
 		'probe1' : 0,
-		'probe2' : 0,
-		'grill_notify' : 0
+		'probe2' : 0
 	}
 
 	control['notify_req'] = {
@@ -422,8 +425,9 @@ metrics_items = [
 def default_metrics():
 	metrics = {}
 
-	for index in range(0, len(metrics_items)):
-		metrics[metrics_items[index][0]] = metrics_items[index][1]
+	metrics['starttime'] = 0
+	metrics['endtime'] = 0 
+	metrics['augerontime'] = 0 
 
 	return(metrics)
 
@@ -587,7 +591,6 @@ def read_control(flush=False):
 	:return: control
 	"""
 	global cmdsts
-
 	try:
 		if flush:
 			# Remove all control structures in Redis DB (not history or current)
@@ -690,18 +693,20 @@ def write_metrics(metrics=default_metrics(), flush=False, new_metric=False):
 		# The following set's no persistence so that we don't get writes to the disk / SDCard 
 		cmdsts.config_set('appendonly', 'no')
 		cmdsts.config_set('save', '')
-		if not flush:
-			new_metric=True
-		else:
-			return
 
 	if new_metric:
 		metrics['starttime'] = time.time() * 1000
 		metrics['id'] = generate_uuid()
 		cmdsts.rpush('metrics:general', json.dumps(metrics))
 	else: 
-		cmdsts.rpop('metrics:general')
-		cmdsts.rpush('metrics:general', json.dumps(metrics))
+		metrics = json.loads(cmdsts.get('metrics:general'))
+
+	return(metrics)
+
+def WriteMetrics(metrics):
+	global cmdsts
+
+	cmdsts.set('metrics:general', json.dumps(metrics))
 
 def read_settings(filename='settings.json'):
 	"""

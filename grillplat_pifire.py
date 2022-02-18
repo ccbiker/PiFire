@@ -21,7 +21,9 @@ from gpiozero import Button
 class GrillPlatform:
 
 	def __init__(self, outpins, inpins, triggerlevel='LOW'):
-		self.outpins = outpins # { 'power' : 4, 'auger' : 14, 'fan' : 15, 'igniter' : 18 }
+		self.pigpio = pigpio.pi()
+
+		self.outpins = outpins # { 'power' : 18, 'auger' : 4, 'fan' : 15, 'igniter' : 14 }
 		self.inpins = inpins # { 'selector' : 17 }
 		self.current = {}
 
