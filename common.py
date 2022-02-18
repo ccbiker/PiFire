@@ -59,6 +59,7 @@ def default_settings():
 		'triggerlevel' : 'LOW',
 		'buttonslevel' : 'HIGH',
 		'shutdown_timer' : 60,
+		'startup_timer' : 240,
 		'four_probes' : False,
 		'dc_fan': False,
 		'standalone': True,
@@ -224,20 +225,13 @@ def default_settings():
 		'full' : 4  			# Number of centimeters from the sensor that indicates full
 	}
 
-	if isRaspberryPi():
-		settings['modules'] = {
-			'grillplat' : 'pifire',	 	# Grill Platform (PiFire - Raspberry Pi GPIOs)
-			'adc' : 'ads1115',			# Analog to Digital Converter Default is the ADS1115
-			'display' : 'ssd1306',		# Default display is the SSD1306
-			'dist' : 'prototype'		# Default distance sensor is none
-		}
-	else:
-		settings['modules'] = {
-			'grillplat' : 'prototype',
-			'adc' : 'prototype',
-			'display' : 'prototype',
-			'dist' : 'prototype'
-		}
+	
+	settings['modules'] = {
+		'grillplat' : 'prototype',
+		'adc' : 'prototype',
+		'display' : 'prototype',
+		'dist' : 'prototype'
+	}
 
 	settings['lastupdated'] = {
 		'time' : math.trunc(time.time())
