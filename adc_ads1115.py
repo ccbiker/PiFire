@@ -84,10 +84,9 @@ class ReadADC:
 		pga=[1024, 4096, 4096] # maybe add to settings json later as necessary
 		sps=[16, 64, 64]
 		try:
-				time.sleep(0.05)
-				adc_value[index] = self.ads.readADCSingleEnded(index)
-#			for index in range(3):
-			for index in [0]:
+			for index in range(3):
+				time.sleep(0.01)
+				adc_value[index] = self.ads.readADCSingleEnded(channel = index,pga = pga[index],sps = sps[index])
 		except:
 			now = str(datetime.datetime.now())
 			now = now[0:19] # Truncate the microseconds

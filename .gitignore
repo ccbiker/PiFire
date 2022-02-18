@@ -34,3 +34,5 @@ test.json
 *.bak2
 
 pelletdb.json
+pid_fan.py
+controlbackup.py
