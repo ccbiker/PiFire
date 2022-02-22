@@ -677,8 +677,8 @@ def _work_cycle(mode, grill_platform, adc_device, display_device, dist_device):
 				if mode == 'Hold':
 					CycleRatio = RawCycleRatio = settings['cycle_data']['u_min'] if LidOpenDetect else PIDControl.update(AvgGT.average())
 
-					OnTime = settings['cycle_data']['HoldCycleTime'] * CycleRatio
-					OffTime = settings['cycle_data']['HoldCycleTime'] * (1 - CycleRatio)
+					OnTime = max(1.0,settings['cycle_data']['HoldCycleTime'] * CycleRatio)
+					OffTime = OnTime / CycleRatio - OnTime
 					CycleTime = OnTime + OffTime
 					write_event(settings, '* On Time = ' + str(OnTime) + ', OffTime = ' + str(
 						OffTime) + ', CycleTime = ' + str(CycleTime) + ', CycleRatio = ' + str(CycleRatio))
