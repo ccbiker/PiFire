@@ -36,3 +36,4 @@ test.json
 pelletdb.json
 pid_fan.py
 controlbackup.py
+settings_old_mainbranch.json

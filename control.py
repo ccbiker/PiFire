@@ -397,8 +397,9 @@ def WorkCycle(mode, grill_platform, adc_device, display_device, dist_device):
                 CycleRatio = PIDControl.update(AvgGT.average())
                 #CycleRatio = max(CycleRatio, settings['cycle_data']['u_min'])
                 #CycleRatio = min(CycleRatio, settings['cycle_data']['u_max'])
-                OnTime = settings['cycle_data']['HoldCycleTime'] * CycleRatio
-                OffTime = settings['cycle_data']['HoldCycleTime'] * (1 - CycleRatio)
+                OnTime = max(1.0, settings['cycle_data']['HoldCycleTime'] * CycleRatio) # Avoid tiny auger-on times... may stay on too long as work cycle loop goes on
+                CycleTime = OnTime / CycleRatio
+                OffTime = CycleTime * (1 - CycleRatio)
                 CycleTime = OnTime + OffTime
                 if settings['globals']['debug_mode']:
                     event = '* On Time = ' + str(OnTime) + ', OffTime = ' + str(OffTime) + ', CycleTime = ' + str(
@@ -891,7 +892,7 @@ def Manual_Mode(grill_platform, adc_device, display_device, dist_device):
                                    settings['probe_settings']['probe_profiles'][probe1type],
                                    settings['probe_settings']['probe_profiles'][probe2type])
 
-    adc_data = ReadProbes(settings, adc_device, units)
+        adc_data = ReadProbes(settings, adc_device, units)
 
         # Test temperature data returned for errors (+/- 20% Temp Variance), and average the data since last reading
         AvgGT.enqueue(adc_data['GrillTemp'])
