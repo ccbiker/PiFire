@@ -55,12 +55,10 @@ class PID:
 		self.recentCycleRatios = [settings['cycle_data']['u_min'] for x in range(int(120/8))] # 120s (2 minute) / cycletime (8s) #TODO pass cycletime value into PID?
 		self.lastFanSpeed = 70
 
-
 	def _calculate_gains(self, pb, ti, td):
 		self.kp = -1 / pb
 		self.ki = self.kp / ti
 		self.kd = self.kp * td
-
 
 	def update(self, current):
 		if self.last is None:
