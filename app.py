@@ -13,10 +13,8 @@
 # *****************************************
 
 from flask import Flask, request, abort, render_template, make_response, send_file, jsonify, redirect
-from flask_mobility import Mobility
 from flask_socketio import SocketIO
 from flask_qrcode import QRcode
-from io import BytesIO
 from werkzeug.utils import secure_filename
 from collections.abc import Mapping
 import threading
@@ -39,7 +37,6 @@ server_status = 'available'
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 QRcode(app)
-Mobility(app)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['HISTORY_FOLDER'] = HISTORY_FOLDER
 
@@ -1916,9 +1913,9 @@ def api_page(action=None):
 		elif action == 'current':
 			current = read_current()
 			current_temps = {
-				'grill_temp' : int(float(current[0])),
-				'probe1_temp' : int(float(current[1])),
-				'probe2_temp' : int(float(current[2]))
+				'grill_temp' : current[0],
+				'probe1_temp' : current[1],
+				'probe2_temp' : current[2]
 			}
 			control = read_control()
 			current_setpoints = control['setpoints']
@@ -2068,16 +2065,25 @@ def check_update(action=None):
 
 	return jsonify({'result' : 'success', 'current' : update_data['version'], 'behind' : commits_behind})
 
-@app.route('/update/<action>', methods=['POST','GET'])
 @app.route('/update', methods=['POST','GET'])
 def update_page(action=None):
 	global settings
 
-	# Create Alert Structure for Alert Notification
-	alert = {
-		'type' : '',
-		'text' : ''
-	}
+	# Populate Update Data Structure
+	update_data = {}
+	update_data['version'] = settings['versions']['server']
+	update_data['branch_target'], error_msg = get_branch()
+	if error_msg != '':
+		WriteLog(error_msg)
+	update_data['branches'], error_msg = get_available_branches()
+	if error_msg != '':
+		WriteLog(error_msg)
+	update_data['remote_url'], error_msg = get_remote_url()
+	if error_msg != '':
+		WriteLog(error_msg)
+	update_data['remote_version'], error_msg = get_remote_version()
+	if error_msg != '':
+		WriteLog(error_msg)
 
 	if request.method == 'GET':
 		if action is None:
@@ -2137,6 +2143,7 @@ def update_page(action=None):
 			return render_template('updater_out.html', settings=settings, page_theme=settings['globals']['page_theme'],
 								   action=action, output_html=output_html, grill_name=settings['globals']['grill_name'])
 
+	return render_template('updater.html', alert=alert, settings=settings, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], update_data=update_data)
 '''
 End Updater Section
 '''
@@ -2820,7 +2827,7 @@ def get_app_data(action=None, type=None):
 				 'logs_result' : logs_result,
 				 'error_message' : error_msg }
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid action'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid action'}}
 
 @socketio.on('post_app_data')
 def post_app_data(action=None, type=None, json_data=None):
@@ -2850,7 +2857,7 @@ def post_app_data(action=None, type=None, json_data=None):
 				else:
 					return {'response': {'result':'error', 'message':'Error: Key not found in control'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 	elif action == 'admin_action':
 		if type == 'clear_history':
@@ -2894,7 +2901,7 @@ def post_app_data(action=None, type=None, json_data=None):
 			restart_scripts()
 			return {'response': {'result':'success'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 	elif action == 'units_action':
 		if type == 'f_units' and settings['globals']['units'] == 'C':
@@ -3041,7 +3048,7 @@ def post_app_data(action=None, type=None, json_data=None):
 			else:
 				return {'response': {'result':'error', 'message':'Error: Function not specified'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 	elif action == 'timer_action':
 		control = read_control()
@@ -3060,7 +3067,7 @@ def post_app_data(action=None, type=None, json_data=None):
 					write_control(control)
 					return {'response': {'result':'success'}}
 				else:
-					return {'response': {'result':'error', 'message':'Error: Start time not specified'}}
+					return {'response': {'result':'error', 'message':'Error: Start time not specifed'}}
 			else:
 				now = time.time()
 				control['timer']['end'] = (control['timer']['end'] - control['timer']['paused']) + now
@@ -3086,46 +3093,36 @@ def post_app_data(action=None, type=None, json_data=None):
 			write_control(control)
 			return {'response': {'result':'success'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid action'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid action'}}
 
 @socketio.on('post_updater_data')
 def updater_action(type='none', branch=None):
 
 	if type == 'change_branch':
 		if branch is not None:
-			success, status, output = change_branch(branch)
+			result, error_msg = set_branch(branch)
 			message = f'Changing to {branch} branch \n'
-			if success:
-				dependencies = 'Installing any required dependencies \n'
-				message += dependencies
-				if install_dependencies() == 0:
-					message += output
-					restart_scripts()
-					return {'response': {'result':'success', 'message': message }}
-				else:
-					return {'response': {'result':'error', 'message':'Error: Dependencies were not installed properly'}}
+			if error_msg == '':
+				message += result
+				restart_scripts()
+				return {'response': {'result':'success', 'message': message }}
 			else:
-				return {'response': {'result':'error', 'message':'Error: ' + output }}
+				return {'response': {'result':'error', 'message':'Error: ' + error_msg }}
 		else:
 			return {'response': {'result':'error', 'message':'Error: Branch not specified in request'}}
 
 	elif type == 'do_update':
 		if branch is not None:
-			success, status, output = install_update()
+			result, error_msg = do_update()
 			message = f'Attempting update on {branch} \n'
-			if success:
-				dependencies = 'Installing any required dependencies \n'
-				message += dependencies
-				if install_dependencies() == 0:
-					message += output
-					restart_scripts()
-					return {'response': {'result':'success', 'message': message }}
-				else:
-					return {'response': {'result':'error', 'message':'Error: Dependencies were not installed properly'}}
+			if error_msg == '':
+				message += result
+				restart_scripts()
+				return {'response': {'result':'success', 'message': message }}
 			else:
-				return {'response': {'result':'error', 'message':'Error: ' + output }}
+				return {'response': {'result':'error', 'message':'Error: ' + error_msg }}
 		else:
 			return {'response': {'result':'error', 'message':'Error: Branch not specified in request'}}
 
@@ -3137,7 +3134,7 @@ def updater_action(type='none', branch=None):
 		else:
 			return {'response': {'result':'error', 'message': 'System is not a Raspberry Pi. Branches not updated.' }}
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid action'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid action'}}
 
 @socketio.on('post_restore_data')
 def post_restore_data(type='none', filename='none', json_data=None):
@@ -3163,7 +3160,7 @@ def post_restore_data(type='none', filename='none', json_data=None):
 		else:
 			return {'response': {'result':'error', 'message':'Error: Filename or JSON data not supplied'}}
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 '''
 Main Program Start
@@ -3175,3 +3172,5 @@ if __name__ == '__main__':
 		socketio.run(app, host='0.0.0.0')
 	else:
 		socketio.run(app, host='0.0.0.0', debug=True)
+	else:
+		socketio.run(app, host='0.0.0.0')
