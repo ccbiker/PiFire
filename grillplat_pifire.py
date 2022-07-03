@@ -64,23 +64,22 @@ class GrillPlatform:
 #		self.pwm = GPIO.PWM(self.outpins['pwm'], self.pwm_freq)
 #		self.pwm.start(self.pwm_duty)
 
-		self.pigpio.set_PWM_frequency(self.outpins['pwm'], 20000)
-		self.pigpio.set_PWM_dutycycle(self.outpins['pwm'], self.pwm_duty)
-		self.pigpio.set_PWM_range(self.outpins['pwm'], 100)
+# convert to hardware PWM
+		#self.pigpio.set_PWM_frequency(self.outpins['pwm'], 20000)
+		#self.pigpio.set_PWM_dutycycle(self.outpins['pwm'], self.pwm_duty)
+		#self.pigpio.set_PWM_range(self.outpins['pwm'], 100)
+		self.pigpio.hardware_PWM(self.outpins['pwm'], 20000, self.pwm_duty * 10000)
+
 
 #		for i in range(10):
 #			self.FanRamp(0,100)
 
 	def FanRamp(self, min = 0, max = 100):
 		for duty in range(min, max + 1, 10):
-#			self.pwm.ChangeDutyCycle(duty)
-#			self.pwm.set_PWM_dutycycle(duty)
 			self.FanDutyCycle(duty)
 			sleep(3)
 		for duty in range(max, min-1, -10):
-#			self.pwm.ChangeDutyCycle(duty)
 			self.FanDutyCycle(duty)
-#			self.pwm.set_PWM_dutycycle(duty)
 			sleep(0.5)
 	def FanDutyCycle(self, dutycycle):
 		self.pigpio.set_PWM_dutycycle(self.outpins['pwm'], dutycycle)
