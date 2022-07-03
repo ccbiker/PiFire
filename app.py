@@ -13,17 +13,13 @@
 # *****************************************
 
 from flask import Flask, request, abort, render_template, make_response, send_file, jsonify, redirect
-from flask_mobility import Mobility
 from flask_socketio import SocketIO
 from flask_qrcode import QRcode
-from io import BytesIO
 from werkzeug.utils import secure_filename
 from collections.abc import Mapping
 import threading
-import zipfile
 from threading import Thread
 from datetime import timedelta
-from datetime import datetime
 import time
 import os
 import json
@@ -39,7 +35,6 @@ ALLOWED_EXTENSIONS = {'json'}
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 QRcode(app)
-Mobility(app)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 @app.route('/')
@@ -55,9 +50,8 @@ def index():
 def dash():
 	global settings
 	control = ReadControl()
-	errors = ReadErrors()
 
-	return render_template('dash.html', set_points=control['setpoints'], notify_req=control['notify_req'], probes_enabled=settings['probe_settings']['probes_enabled'], control=control, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], units=settings['globals']['units'], errors=errors)
+	return render_template('dash.html', set_points=control['setpoints'], notify_req=control['notify_req'], probes_enabled=settings['probe_settings']['probes_enabled'], control=control, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], units=settings['globals']['units'])
 
 @app.route('/dashdata')
 def dashdata():
@@ -151,6 +145,14 @@ def historypage(action=None):
 
 	if (request.method == 'POST'):
 		response = request.form
+		if('autorefresh' in response):
+			if(response['autorefresh'] == 'on'):
+				settings['history_page']['autorefresh'] = 'on'
+				WriteSettings(settings)
+			else:
+				settings['history_page']['autorefresh'] = 'off'
+				WriteSettings(settings)
+
 		if(action == 'setmins'):
 			if('minutes' in response):
 				if(response['minutes'] != ''):
@@ -181,9 +183,6 @@ def historypage(action=None):
 				if (int((index/list_length)*100) > last):
 					#print('Generating Data: ' + str(int((index/list_length)*100)) + "%")
 					last = int((index/list_length)*100)
-				# Convert time data to datetime format
-				converted_dt = datetime.datetime.fromtimestamp(int(data_list[index][0]) / 1000)
-				data_list[index][0] = converted_dt.strftime('%Y-%m-%d %H:%M:%S')
 				writeline = ','.join(data_list[index])
 				csvfile.write(writeline + '\n')
 		else:
@@ -200,70 +199,16 @@ def historypage(action=None):
 	data_blob = {}
 	data_blob = prepare_data(num_items, True, settings['history_page']['datapoints'])
 
-	autorefresh = settings['history_page']['autorefresh']
-	if control['mode'] == 'Stop':
-		autorefresh = 'off'
-
-	annotations = prepare_annotations()
-
-	return render_template('history.html', control=control, grill_temp_list=data_blob['grill_temp_list'], grill_settemp_list=data_blob['grill_settemp_list'], probe1_temp_list=data_blob['probe1_temp_list'], probe1_settemp_list=data_blob['probe1_settemp_list'], probe2_temp_list=data_blob['probe2_temp_list'], probe2_settemp_list=data_blob['probe2_settemp_list'], label_time_list=data_blob['label_time_list'], probes_enabled=probes_enabled, num_mins=settings['history_page']['minutes'], num_datapoints=settings['history_page']['datapoints'], autorefresh=autorefresh, annotations=annotations, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'])
-
-@app.route('/historyupdate/<action>', methods=['POST','GET'])    
+	return render_template('history.html', control=control, grill_temp_list=data_blob['grill_temp_list'], grill_settemp_list=data_blob['grill_settemp_list'], probe1_temp_list=data_blob['probe1_temp_list'], probe1_settemp_list=data_blob['probe1_settemp_list'], probe2_temp_list=data_blob['probe2_temp_list'], probe2_settemp_list=data_blob['probe2_settemp_list'], label_time_list=data_blob['label_time_list'], probes_enabled=probes_enabled, num_mins=settings['history_page']['minutes'], num_datapoints=settings['history_page']['datapoints'], autorefresh=settings['history_page']['autorefresh'], page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'])
+    
 @app.route('/historyupdate')
-def historyupdate(action=None):
+def historyupdate():
 	global settings
 
-	if(action == 'stream'):
-		# GET - Read current temperatures and set points for history streaming 
-		control = ReadControl()
-		if control['mode'] == 'Stop':
-			set_temps = [0,0,0]
-			cur_probe_temps = [0,0,0]
-		else:
-			set_temps = control['setpoints']
-			set_temps[0] = control['setpoints']['grill']
-			set_temps[1] = control['setpoints']['probe1']
-			set_temps[2] = control['setpoints']['probe2']
-			cur_probe_temps = []
-			cur_probe_temps = ReadCurrent()
-
-		json_data = { 
-			'probe0_temp' : int(float(cur_probe_temps[0])), 
-			'probe0_settemp' : set_temps[0], 
-			'probe1_temp' : int(float(cur_probe_temps[1])), 
-			'probe1_settemp' : set_temps[1], 
-			'probe2_temp' : int(float(cur_probe_temps[2])), 
-			'probe2_settemp' : set_temps[2],
-			'annotations' : prepare_annotations()
-		}
-		return jsonify(json_data)
-
-	elif(action == 'refresh'):
-		# POST - Get number of minutes into the history to refresh the history chart
-		requestjson = request.json 
-		if('num_mins' in requestjson):
-			data_blob = {}
-			num_items = int(requestjson['num_mins']) * 20  # Calculate number of items requested 
-			data_blob = prepare_data(num_items, True, settings['history_page']['datapoints'])
-
-			json_data = { 
-				'grill_temp_list' : data_blob['grill_temp_list'],
-				'grill_settemp_list' : data_blob['grill_settemp_list'],
-				'probe1_temp_list' : data_blob['probe1_temp_list'],
-				'probe1_settemp_list' : data_blob['probe1_settemp_list'],
-				'probe2_temp_list' : data_blob['probe2_temp_list'],
-				'probe2_settemp_list' : data_blob['probe2_settemp_list'],
-				'label_time_list' : data_blob['label_time_list'], 
-				'annotations' : prepare_annotations()
-			}
-			return jsonify(json_data)
-
-	# Legacy Flow - Which may eventually be retired 
 	data_blob = {}
 	num_items = settings['history_page']['minutes'] * 20
 	data_blob = prepare_data(num_items, True, settings['history_page']['datapoints'])
-	for index in range(0, len(data_blob['label_time_list'])): 
-		data_blob['label_time_list'][index] = datetime.datetime.fromtimestamp(int(data_blob['label_time_list'][index]) / 1000).strftime('%H:%M:%S')
+
 	return jsonify({ 'grill_temp_list' : data_blob['grill_temp_list'], 'grill_settemp_list' : data_blob['grill_settemp_list'], 'probe1_temp_list' : data_blob['probe1_temp_list'], 'probe1_settemp_list' : data_blob['probe1_settemp_list'], 'probe2_temp_list' : data_blob['probe2_temp_list'], 'probe2_settemp_list' : data_blob['probe2_settemp_list'], 'label_time_list' : data_blob['label_time_list'] })
 
 @app.route('/tuning/<action>', methods=['POST','GET'])
@@ -591,16 +536,11 @@ def settingspage(action=None):
 	if (request.method == 'POST') and (action == 'probes'):
 		response = request.form
 
-		if('grill1enable' in response):
-			if(response['grill1enable'] == "0"):
-				settings['probe_settings']['grill_probe_enabled'][0] = 0
+		if('grill0enable' in response):
+			if(response['grill0enable'] == "0"):
+				settings['probe_settings']['probes_enabled'][0] = 0
 			else:
-				settings['probe_settings']['grill_probe_enabled'][0] = 1
-		if('grill2enable' in response):
-			if(response['grill2enable'] == "0"):
-				settings['probe_settings']['grill_probe_enabled'][1] = 0
-			else:
-				settings['probe_settings']['grill_probe_enabled'][1] = 1
+				settings['probe_settings']['probes_enabled'][0] = 1
 		if('probe1enable' in response):
 			if(response['probe1enable'] == "0"):
 				settings['probe_settings']['probes_enabled'][1] = 0
@@ -611,37 +551,9 @@ def settingspage(action=None):
 				settings['probe_settings']['probes_enabled'][2] = 0
 			else:
 				settings['probe_settings']['probes_enabled'][2] = 1
-		if('grill_probes' in response):
-			if(response['grill_probes'] == 'grill_probe1'):
-				settings['grill_probe_settings']['grill_probe_enabled'][0] = 1
-				settings['grill_probe_settings']['grill_probe_enabled'][1] = 0
-				settings['grill_probe_settings']['grill_probe_enabled'][2] = 0
-				settings['grill_probe_settings']['grill_probe'] = response['grill_probes']
-				event['type'] = 'updated'
-				event['text'] = 'Grill Probe selection updated. Settings saved.'
-			elif(response['grill_probes'] == 'grill_probe2'):
-				settings['grill_probe_settings']['grill_probe_enabled'][0] = 0
-				settings['grill_probe_settings']['grill_probe_enabled'][1] = 1
-				settings['grill_probe_settings']['grill_probe_enabled'][2] = 0
-				settings['grill_probe_settings']['grill_probe'] = response['grill_probes']
-				event['type'] = 'updated'
-				event['text'] = 'Grill Probe selection updated. Settings saved.'
-			elif(response['grill_probes'] == 'grill_probe3'):
-				settings['grill_probe_settings']['grill_probe_enabled'][0] = 0
-				settings['grill_probe_settings']['grill_probe_enabled'][1] = 0
-				settings['grill_probe_settings']['grill_probe_enabled'][2] = 1
-				settings['grill_probe_settings']['grill_probe'] = response['grill_probes']
-				event['type'] = 'updated'
-				event['text'] = 'Grill Probe selection updated. Settings saved.'
-		if('grill_probe1_type' in response):
-			if(response['grill_probe1_type'] != settings['probe_types']['grill1type']):
-				settings['probe_types']['grill1type'] = response['grill_probe1_type']
-				control['probe_profile_update'] = True
-				event['type'] = 'updated'
-				event['text'] = 'Probe type updated. Settings saved.'
-		if('grill_probe2_type' in response):
-			if(response['grill_probe2_type'] != settings['probe_types']['grill2type']):
-				settings['probe_types']['grill2type'] = response['grill_probe2_type']
+		if('grill_probe_type' in response):
+			if(response['grill_probe_type'] != settings['probe_types']['grill0type']):
+				settings['probe_types']['grill0type'] = response['grill_probe_type']
 				control['probe_profile_update'] = True
 				event['type'] = 'updated'
 				event['text'] = 'Probe type updated. Settings saved.'
@@ -682,12 +594,6 @@ def settingspage(action=None):
 				settings['pushover']['enabled'] = True
 		else:
 			settings['pushover']['enabled'] = False
-
-		if('onesignal_enabled' in response):
-			if(response['onesignal_enabled'] == 'on'):
-				settings['onesignal']['enabled'] = True
-		else:
-			settings['onesignal']['enabled'] = False
 
 		if('iftttapi' in response):
 			if(response['iftttapi'] == "0") or (response['iftttapi'] == ''):
@@ -894,18 +800,6 @@ def settingspage(action=None):
 			if(response['startup_timer'] != ''):
 				settings['globals']['startup_timer'] = int(response['startup_timer'])
 
-		if('auto_power_off' in response):
-			if(response['auto_power_off'] == 'on'):
-				settings['globals']['auto_power_off'] = True
-		else:
-			settings['globals']['auto_power_off'] = False
-
-		if('smartstart_enable' in response):
-			if(response['smartstart_enable'] == 'on'):
-				settings['smartstart']['enabled'] = True
-		else:
-			settings['smartstart']['enabled'] = False
-
 		event['type'] = 'updated'
 		event['text'] = 'Successfully updated startup/shutdown settings.'
 
@@ -1030,21 +924,6 @@ def settingspage(action=None):
 				control['updated'] = True
 				control['units_change'] = True 
 				WriteControl(control)
-	'''
-	Smart Start Settings
-	'''
-	if (request.method == 'GET') and (action == 'smartstart'):
-		temps = settings['smartstart']['temp_range_list']
-		profiles = settings['smartstart']['profiles']
-		return(jsonify({'temps_list' : temps, 'profiles' : profiles}))
-
-	if (request.method == 'POST') and (action == 'smartstart'):
-		#print(f'\nGot POST Request: \n{request.json}')
-		response = request.json 
-		settings['smartstart']['temp_range_list'] = response['temps_list']
-		settings['smartstart']['profiles'] = response['profiles']
-		WriteSettings(settings)
-		return(jsonify({'result' : 'success'}))
 
 	return render_template('settings.html', settings=settings, alert=event, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], pelletdb=pelletdb)
 
@@ -1125,13 +1004,6 @@ def adminpage(action=None):
 				control = DefaultControl()
 				WriteSettings(settings)
 				WriteControl(control)
-
-		if('download_logs' in response):
-			timenow = datetime.datetime.now()
-			timestr = timenow.strftime('%m-%d-%y_%H%M%S') # Truncate the microseconds
-			file_name = 'PiFire_Logs_' + timestr + '.zip'
-			zip_file = zip_files_dir('logs')
-			return send_file(zip_file, as_attachment=True, attachment_filename=file_name, max_age=0)
 		
 		if('backupsettings' in response):
 			#print('Backing up settings... ')
@@ -1287,10 +1159,11 @@ def api_page(action=None):
 			return jsonify({'control':control}), 201
 		elif(action == 'current'):
 			current=ReadCurrent()
+			#print(current)
 			current_temps = {
-				'grill_temp' : int(float(current[0])),
-				'probe1_temp' : int(float(current[1])),
-				'probe2_temp' : int(float(current[2]))
+				'grill_temp' : current[0],
+				'probe1_temp' : current[1],
+				'probe2_temp' : current[2]
 			}
 			control=ReadControl()
 			current_setpoints = control['setpoints']
@@ -1441,53 +1314,67 @@ def checkupdate(action=None):
 
 	return jsonify({'result' : 'success', 'current' : update_data['version'], 'behind' : commits_behind})
 
-@app.route('/update/<action>', methods=['POST','GET'])
 @app.route('/update', methods=['POST','GET'])
 def update_page(action=None):
 	global settings
 
-	# Create Alert Structure for Alert Notification
-	alert = {
-		'type' : '',
-		'text' : ''
-	}
+	# Populate Update Data Structure
+	update_data = {}
+	update_data['version'] = settings['versions']['server']
+	update_data['branch_target'], error_msg = get_branch()
+	if error_msg != '':
+		WriteLog(error_msg)
+	update_data['branches'], error_msg = get_available_branches()
+	if error_msg != '':
+		WriteLog(error_msg)
+	update_data['remote_url'], error_msg = get_remote_url()
+	if error_msg != '':
+		WriteLog(error_msg)
+	update_data['remote_version'], error_msg = get_remote_version()
+	if error_msg != '':
+		WriteLog(error_msg)
 
-	if(request.method == 'GET'):
-		if(action is None):
-			update_data = get_update_data(settings)
-			return render_template('updater.html', alert=alert, settings=settings, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], update_data=update_data)
-		elif(action=='updatestatus'):
-			percent, status, output = GetUpdaterInstallStatus()
-			return jsonify({'percent' : percent, 'status' : status, 'output' : output})
+	# Create Alert Structure for Alert Notification
+	alert = { 
+		'type' : '', 
+		'text' : ''
+		}
 
 	if(request.method == 'POST'):
-		r = request.form
-		update_data = get_update_data(settings)
-
-		if('update_remote_branches' in r):
-			if isRaspberryPi():
-				os.system('python3 %s %s &' % ('updater.py', '-r'))	 # Update branches from remote 
-				time.sleep(4)  # Artificial delay to avoid race condition
-			return redirect('/update')
+		r = request.form 
 
 		if('change_branch' in r):
 			if(update_data['branch_target'] in r['branch_target']):
-				alert = {
-					'type' : 'success',
+				alert = { 
+					'type' : 'success', 
 					'text' : f'Current branch {update_data["branch_target"]} already set to {r["branch_target"]}'
 				}
 				return render_template('updater.html', alert=alert, settings=settings, page_theme=settings['globals']['page_theme'], update_data=update_data, grill_name=settings['globals']['grill_name'])
-			else:
-				print(f'Changing Branch. \nForm Data: {r["branch_target"]}')
-				SetUpdaterInstallStatus(0, 'Starting Branch Change...', '')
-				os.system('python3 %s %s %s &' % ('updater.py', '-b', r['branch_target']))	# Kickoff Branch Change
-				return render_template('updater-status.html', page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'])
+			else: 
+				result, error_msg = set_branch(r['branch_target'])
+				if error_msg == '':
+					action = 'restart'
+					output_html = f'*** Changing from current branch {update_data["branch_target"]} to {r["branch_target"]} ***<br><br>'
+					output_html += result 
+					restart_scripts()
+				else:
+					action = ''
+					output_html = f'*** Changing from current branch {update_data["branch_target"]} to {r["branch_target"]} Experienced Errors ***<br><br>'
+					output_html += error_msg
+				return render_template('updater_out.html', settings=settings, page_theme=settings['globals']['page_theme'], action=action, output_html=output_html, grill_name=settings['globals']['grill_name'])				
 
 		if('do_update' in r):
-			print(f'Updating. \nForm Data: {r}')
-			SetUpdaterInstallStatus(0, 'Starting Update...', '')
-			os.system('python3 %s %s %s &' % ('updater.py', '-u', update_data['branch_target']))  # Kickoff Update
-			return render_template('updater-status.html', page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'])
+			result, error_msg = do_update() 
+			if error_msg == '':
+				action='restart'
+				output_html = f'*** Attempting an update on {update_data["branch_target"]} ***<br><br>' 
+				output_html += result 
+				restart_scripts()
+			else:
+				action=''
+				output_html = f'*** Attempting an update on {update_data["branch_target"]} ***<br><br>' 
+				output_html += error_msg
+			return render_template('updater_out.html', settings=settings, page_theme=settings['globals']['page_theme'], action=action, output_html=output_html, grill_name=settings['globals']['grill_name'])
 
 		if('show_log' in r):
 			if(r['show_log'].isnumeric()):
@@ -1504,80 +1391,10 @@ def update_page(action=None):
 			
 			return render_template('updater_out.html', settings=settings, page_theme=settings['globals']['page_theme'], action=action, output_html=output_html, grill_name=settings['globals']['grill_name'])
 
+	return render_template('updater.html', alert=alert, settings=settings, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], update_data=update_data)
 '''
 End Updater Section
 '''
-
-''' 
-Metrics Routes
-'''
-@app.route('/metrics/<action>', methods=['POST','GET'])
-@app.route('/metrics', methods=['POST','GET'])
-def metrics_page(action=None):
-	global settings
-
-	metrics_data = ReadMetrics(all=True)
-
-	# Process Additional Metrics Information for Display
-	for index in range(0, len(metrics_data)):
-		# Convert Start Time
-		starttime = metrics_data[index]['starttime']
-		metrics_data[index]['starttime_c'] = epoch_to_time(starttime)
-		# Convert End Time
-		if(metrics_data[index]['endtime'] == 0):
-			endtime = 0
-		else: 
-			endtime = epoch_to_time(metrics_data[index]['endtime'])
-		metrics_data[index]['endtime_c'] = endtime
-		# Time in Mode
-		if(metrics_data[index]['mode'] == 'Stop'):
-			timeinmode = 'NA'
-		elif(metrics_data[index]['endtime'] == 0):
-			timeinmode = 'Active'
-		else:
-			seconds = int(metrics_data[index]['endtime'] - metrics_data[index]['starttime'])
-			if seconds > 60:
-				timeinmode = f'{int(seconds/60)} m {seconds % 60} s'
-			else:
-				timeinmode = f'{seconds} s'
-		metrics_data[index]['timeinmode'] = timeinmode 
-		# Convert Auger On Time
-		metrics_data[index]['augerontime_c'] = str(int(metrics_data[index]['augerontime'])) + ' s'
-		# Estimated Pellet Usage
-		grams = int(metrics_data[index]['augerontime'] * settings['globals']['augerrate'])
-		pounds = grams * 0.00220462
-		ounces = grams * 0.03527392
-		metrics_data[index]['estusage_m'] = f'{grams} grams'
-		metrics_data[index]['estusage_i'] = f'{pounds} pounds ({ounces} ounces)'
-
-	if (request.method == 'GET') and (action == 'export'):
-		exportfilename = "pifire_metrics.csv"
-		csvfile = open('/tmp/' + exportfilename, 'w')
-
-		list_length = len(metrics_data) # Length of list
-
-		if(list_length > 0):
-			# Build the header row
-			writeline=''
-			for item in range(0, len(metrics_items)):
-				writeline += f'{metrics_items[item][0]}, '
-			writeline += '\n'
-			csvfile.write(writeline)
-			for index in range(0, list_length):
-				writeline = ''
-				for item in range(0, len(metrics_items)):
-					writeline += f'{metrics_data[index][metrics_items[item][0]]}, '
-				writeline += '\n'
-				csvfile.write(writeline)
-		else:
-			writeline = 'No Data\n'
-			csvfile.write(writeline)
-
-		csvfile.close()
-
-		return send_file('/tmp/' + exportfilename, as_attachment=True, max_age=0)
-
-	return render_template('metrics.html', settings=settings, page_theme=settings['globals']['page_theme'], grill_name=settings['globals']['grill_name'], metrics_data=metrics_data)
 
 '''
 Supporting Functions
@@ -1622,7 +1439,7 @@ def prepare_data(num_items=10, reduce=True, datapoints=60):
 		# Build all lists from file data
 		for index in range(list_length - num_items, list_length, step):
 			if(units == 'F'):
-				data_blob['label_time_list'].append(int(data_list[index][0]))  # Timestamp format is int, so convert from str
+				data_blob['label_time_list'].append(data_list[index][0]) 
 				data_blob['grill_temp_list'].append(int(data_list[index][1]))
 				data_blob['grill_settemp_list'].append(int(data_list[index][2]))
 				data_blob['probe1_temp_list'].append(int(data_list[index][3]))
@@ -1630,7 +1447,7 @@ def prepare_data(num_items=10, reduce=True, datapoints=60):
 				data_blob['probe2_temp_list'].append(int(data_list[index][5]))
 				data_blob['probe2_settemp_list'].append(int(data_list[index][6]))
 			else: 
-				data_blob['label_time_list'].append(int(data_list[index][0]))  # Timestamp format is int, so convert from str
+				data_blob['label_time_list'].append(data_list[index][0]) 
 				data_blob['grill_temp_list'].append(float(data_list[index][1]))
 				data_blob['grill_settemp_list'].append(float(data_list[index][2]))
 				data_blob['probe1_temp_list'].append(float(data_list[index][3]))
@@ -1639,10 +1456,9 @@ def prepare_data(num_items=10, reduce=True, datapoints=60):
 				data_blob['probe2_settemp_list'].append(float(data_list[index][6]))
 	else:
 		now = datetime.datetime.now()
-		#timenow = now.strftime('%H:%M:%S')
-		timenow = int(now.timestamp() * 1000)  # Use timestamp format (int) instead of H:M:S format in string
+		timestr = now.strftime('%H:%M:%S')
 		for index in range(num_items):
-			data_blob['label_time_list'].append(timenow) 
+			data_blob['label_time_list'].append(str(timestr)) 
 			data_blob['grill_temp_list'].append(0)
 			data_blob['grill_settemp_list'].append(0)
 			data_blob['probe1_temp_list'].append(0)
@@ -1651,52 +1467,6 @@ def prepare_data(num_items=10, reduce=True, datapoints=60):
 			data_blob['probe2_settemp_list'].append(0)
 
 	return(data_blob)
-
-def prepare_annotations():
-	metrics_data = ReadMetrics(all=True)
-	annotation_json = {}
-	# Process Additional Metrics Information for Display
-	for index in range(0, len(metrics_data)):
-		# Convert Start Time
-		starttime = epoch_to_time(metrics_data[index]['starttime'])
-		mode = metrics_data[index]['mode']
-		color = 'blue'
-		if mode == 'Startup':
-			color = 'green'
-		elif mode == 'Stop': 
-			color = 'red'
-		elif mode == 'Shutdown':
-			color = 'black'
-		elif mode == 'Reignite':
-			color = 'orange'
-		elif mode == 'Error':
-			color = 'red'
-		elif mode == 'Hold': 
-			color = 'blue'
-		elif mode == 'Smoke':
-			color = 'grey'
-		elif mode in ['Monitor', 'Manual']:
-			color = 'purple'
-		annotation = {
-						'type' : 'line',
-						'xMin' : starttime,
-						'xMax' : starttime,
-						'borderColor' : color,
-						'borderWidth' : 2,
-						'label': {
-							'backgroundColor': color,
-							'borderColor' : 'black',
-							'color': 'white',
-							'content': mode,
-							'enabled': True, 
-							'position': 'end',
-							'rotation': 0,
-							}, 
-						'display': True
-					}
-		annotation_json[f'event_{index}'] = annotation
-
-	return(annotation_json)
 
 def calc_shh_coefficients(T1, T2, T3, R1, R2, R3):
 	try: 
@@ -1783,15 +1553,6 @@ def str_td(td):
 def epoch_to_time(epoch):
 	end_time =  datetime.datetime.fromtimestamp(epoch)
 	return end_time.strftime("%H:%M:%S")
-
-def zip_files_dir(dir_name):
-	memory_file = BytesIO()
-	with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-		for root, dirs, files in os.walk(dir_name):
-			for file in files:
-				zipf.write(os.path.join(root, file))
-	memory_file.seek(0)
-	return memory_file
 
 def deep_dict_update(orig_dict, new_dict):
 	for key, value in new_dict.items():
@@ -1908,11 +1669,6 @@ def get_app_data(action=None, type=None):
 	elif action == 'history_data':
 		num_items = settings['history_page']['minutes'] * 20
 		data_blob = prepare_data(num_items, True, settings['history_page']['datapoints'])
-		# Converting time format from 'time from epoch' to H:M:S
-		# @weberbox:  Trying to keep the legacy format for the time labels so that I don't break the Android app
-		for index in range(0, len(data_blob['label_time_list'])): 
-			data_blob['label_time_list'][index] = datetime.datetime.fromtimestamp(int(data_blob['label_time_list'][index]) / 1000).strftime('%H:%M:%S')
-
 		return { 'grill_temp_list' : data_blob['grill_temp_list'],
 				 'grill_settemp_list' : data_blob['grill_settemp_list'],
 				 'probe1_temp_list' : data_blob['probe1_temp_list'],
@@ -2000,7 +1756,7 @@ def get_app_data(action=None, type=None):
 				 'logs_result' : logs_result,
 				 'error_message' : error_msg }
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid action'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid action'}}
 
 @socketio.on('post_app_data')
 def post_app_data(action=None, type=None, json_data=None):
@@ -2030,7 +1786,7 @@ def post_app_data(action=None, type=None, json_data=None):
 				else:
 					return {'response': {'result':'error', 'message':'Error: Key not found in control'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 	elif action == 'admin_action':
 		if type == 'clear_history':
@@ -2069,12 +1825,8 @@ def post_app_data(action=None, type=None, json_data=None):
 			WriteLog("Admin: Shutdown")
 			os.system("sleep 3 && sudo shutdown -h now &")
 			return {'response': {'result':'success'}}
-		elif type == 'restart':
-			WriteLog("Admin: Restart Server")
-			restart_scripts()
-			return {'response': {'result':'success'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 	elif action == 'units_action':
 		if type == 'f_units' and settings['globals']['units'] == 'C':
@@ -2219,7 +1971,7 @@ def post_app_data(action=None, type=None, json_data=None):
 			else:
 				return {'response': {'result':'error', 'message':'Error: Function not specified'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 	elif action == 'timer_action':
 		control = ReadControl()
@@ -2238,7 +1990,7 @@ def post_app_data(action=None, type=None, json_data=None):
 					WriteControl(control)
 					return {'response': {'result':'success'}}
 				else:
-					return {'response': {'result':'error', 'message':'Error: Start time not specified'}}
+					return {'response': {'result':'error', 'message':'Error: Start time not specifed'}}
 			else:
 				now = time.time()
 				control['timer']['end'] = (control['timer']['end'] - control['timer']['paused']) + now
@@ -2264,58 +2016,40 @@ def post_app_data(action=None, type=None, json_data=None):
 			WriteControl(control)
 			return {'response': {'result':'success'}}
 		else:
-			return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+			return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid action'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid action'}}
 
 @socketio.on('post_updater_data')
 def updater_action(type='none', branch=None):
 
 	if type == 'change_branch':
 		if branch is not None:
-			success, status, output = change_branch(branch)
+			result, error_msg = set_branch(branch)
 			message = f'Changing to {branch} branch \n'
-			if success:
-				dependencies = 'Installing any required dependencies \n'
-				message += dependencies
-				if install_dependencies() == 0:
-					message += output
-					restart_scripts()
-					return {'response': {'result':'success', 'message': message }}
-				else:
-					return {'response': {'result':'error', 'message':'Error: Dependencies were not installed properly'}}
+			if error_msg == '':
+				message += result
+				restart_scripts()
+				return {'response': {'result':'success', 'message': message }}
 			else:
-				return {'response': {'result':'error', 'message':'Error: ' + output }}
+				return {'response': {'result':'error', 'message':'Error: ' + error_msg }}
 		else:
 			return {'response': {'result':'error', 'message':'Error: Branch not specified in request'}}
 
 	elif type == 'do_update':
 		if branch is not None:
-			success, status, output = install_update()
+			result, error_msg = do_update()
 			message = f'Attempting update on {branch} \n'
-			if success:
-				dependencies = 'Installing any required dependencies \n'
-				message += dependencies
-				if install_dependencies() == 0:
-					message += output
-					restart_scripts()
-					return {'response': {'result':'success', 'message': message }}
-				else:
-					return {'response': {'result':'error', 'message':'Error: Dependencies were not installed properly'}}
+			if error_msg == '':
+				message += result
+				restart_scripts()
+				return {'response': {'result':'success', 'message': message }}
 			else:
-				return {'response': {'result':'error', 'message':'Error: ' + output }}
+				return {'response': {'result':'error', 'message':'Error: ' + error_msg }}
 		else:
 			return {'response': {'result':'error', 'message':'Error: Branch not specified in request'}}
-
-	elif type == 'update_remote_branches':
-		if isRaspberryPi():
-			os.system('python3 %s %s &' % ('updater.py', '-r'))	 # Update branches from remote
-			time.sleep(2)
-			return {'response': {'result':'success', 'message': 'Branches successfully updated from remote' }}
-		else:
-			return {'response': {'result':'error', 'message': 'Could not update branches from remote' }}
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid action'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid action'}}
 
 @socketio.on('post_restore_data')
 def post_restore_data(type='none', filename='none', json_data=None):
@@ -2341,7 +2075,7 @@ def post_restore_data(type='none', filename='none', json_data=None):
 		else:
 			return {'response': {'result':'error', 'message':'Error: Filename or JSON data not supplied'}}
 	else:
-		return {'response': {'result':'error', 'message':'Error: Received request without valid type'}}
+		return {'response': {'result':'error', 'message':'Error: Recieved request without valid type'}}
 
 '''
 Main Program Start
@@ -2349,7 +2083,7 @@ Main Program Start
 settings = ReadSettings()
 
 if __name__ == '__main__':
-	if(isRaspberryPi()):
-		socketio.run(app, host='0.0.0.0')
-	else:
+	if(settings['modules']['grillplat'] == 'prototype'):
 		socketio.run(app, host='0.0.0.0', debug=True)
+	else:
+		socketio.run(app, host='0.0.0.0')
